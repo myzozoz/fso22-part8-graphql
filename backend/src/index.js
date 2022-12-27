@@ -54,20 +54,17 @@ const resolvers = {
     bookCount: async () => Book.collection.countDocuments(),
     authorCount: async () => Author.collection.countDocuments(),
     allBooks: async (root, args) => {
-      const books = await Book.find({})
-      console.log('books found:', books)
+      let books = await Book.find({}).populate('author')
+      console.log('about to return books', books)
+      if (args.author)
+        books = books.filter((b) => b.author.name === args.author)
+      if (args.genre)
+        books = books.filter((b) => b.genres.some((g) => g === args.genre))
       return books
     },
 
     allAuthors: async () => {
       return Author.find({})
-    },
-  },
-  Book: {
-    author: async (root) => {
-      return {
-        author: await Author.findOne({ name: root.author }),
-      }
     },
   },
   Mutation: {
@@ -85,10 +82,12 @@ const resolvers = {
 
       return book.save()
     },
-    editAuthor: (root, args) => {
-      const author = authors.find((a) => a.name === args.name)
-      if (author) author['born'] = args.setBornTo
-      return author
+    editAuthor: async (root, args) => {
+      await Author.findOneAndUpdate(
+        { name: args.name },
+        { born: args.setBornTo }
+      )
+      return await Author.findOne({ name: args.name })
     },
   },
 }
