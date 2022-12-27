@@ -1,4 +1,4 @@
-const { ApolloServer, gql } = require('apollo-server');
+const { ApolloServer, gql } = require('apollo-server')
 
 let authors = [
   {
@@ -24,7 +24,7 @@ let authors = [
     name: 'Sandi Metz', // birthyear not known
     id: 'afa5b6f3-344d-11e9-a414-719c6709cf3e',
   },
-];
+]
 
 /*
  * Suomi:
@@ -90,7 +90,7 @@ let books = [
     id: 'afa5de04-344d-11e9-a414-719c6709cf3e',
     genres: ['classic', 'revolution'],
   },
-];
+]
 
 const typeDefs = gql`
   type Book {
@@ -111,29 +111,30 @@ const typeDefs = gql`
   type Query {
     bookCount: Int!
     authorCount: Int!
-    allBooks: [Book!]!
+    allBooks(author: String): [Book!]!
     allAuthors: [Author!]!
   }
-`;
+`
 
 const resolvers = {
   Query: {
     bookCount: () => books.length,
     authorCount: () => authors.length,
-    allBooks: () => books,
+    allBooks: (root, args) =>
+      args.author ? books.filter((b) => b.author === args.author) : books,
     allAuthors: () =>
       authors.map((a) => ({
         ...a,
         bookCount: books.filter((b) => b.author === a.name).length,
       })),
   },
-};
+}
 
 const server = new ApolloServer({
   typeDefs,
   resolvers,
-});
+})
 
 server.listen().then(({ url }) => {
-  console.log(`Server ready at ${url}`);
-});
+  console.log(`Server ready at ${url}`)
+})
