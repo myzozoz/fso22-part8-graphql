@@ -3,15 +3,16 @@ import { useQuery } from '@apollo/client'
 import { ALL_BOOKS } from '../queries'
 
 const Books = (props) => {
-  const result = useQuery(ALL_BOOKS)
   const [filter, setFilter] = useState(null)
+  const result = useQuery(ALL_BOOKS, { variables: { genre: filter } })
+  const result_all = useQuery(ALL_BOOKS)
   if (!props.show) {
     return null
   }
 
   if (result.loading) return <div>loading...</div>
 
-  const allGenres = result.data.allBooks.reduce((prev, curr) => {
+  const allGenres = result_all.data.allBooks.reduce((prev, curr) => {
     curr.genres &&
       curr.genres.forEach((g) => {
         if (!prev.some((p) => p === g)) prev.push(g)
