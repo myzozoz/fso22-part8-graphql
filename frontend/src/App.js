@@ -1,12 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Authors from './components/Authors'
 import Books from './components/Books'
 import NewBook from './components/NewBook'
 import Login from './components/Login'
+import Recommendations from './components/Recommendations'
 
 const App = ({ client }) => {
   const [page, setPage] = useState('authors')
   const [token, setToken] = useState(null)
+
+  useEffect(() => {
+    const token = localStorage.getItem('library-user-token')
+    setToken(token)
+  }, [])
 
   const logout = () => {
     setToken(null)
@@ -21,6 +27,7 @@ const App = ({ client }) => {
         <button onClick={() => setPage('books')}>books</button>
         {token ? (
           <>
+            <button onClick={() => setPage('recommended')}>recommended</button>
             <button onClick={() => setPage('add')}>add book</button>
             <button onClick={logout}>logout</button>
           </>
@@ -32,6 +39,8 @@ const App = ({ client }) => {
       <Authors show={page === 'authors'} />
 
       <Books show={page === 'books'} />
+
+      <Recommendations show={page === 'recommended'} />
 
       <NewBook show={page === 'add'} />
 
