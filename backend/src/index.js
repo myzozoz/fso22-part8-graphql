@@ -1,12 +1,23 @@
-const { ApolloServer, gql, UserInputError } = require('apollo-server')
+const { execute, subscribe } = require('graphql')
+const { SubscriptionServer } = require('graphql-ws')
+const { useServer } = require('graphql-ws/lib/use/ws')
+const { WebSocketServer } = require('ws')
+const { ApolloServer } = require('apollo-server-express')
+const { ApolloServerPluginDrainHttpServer } = require('apollo-server-core')
+const { makeExecutableSchema } = require('@graphql-tools/schema')
+const express = require('express')
+const http = require('http')
+
 const jwt = require('jsonwebtoken')
 require('dotenv').config()
 
 const mongoose = require('mongoose')
-const Author = require('./models/author')
-const Book = require('./models/book')
+
 const User = require('./models/user')
 const JWT_SECRET = 'SECRET_KEY'
+
+const typeDefs = require('./schema')
+const resolvers = require('./resolvers')
 
 mongoose
   .connect(process.env.MONGODB_URI)
@@ -17,149 +28,56 @@ mongoose
     console.log('error connection to MongoDB:', error.message)
   })
 
-const typeDefs = gql`
-  type Book {
-    title: String!
-    published: Int!
-    author: Author!
-    genres: [String!]!
-    id: ID!
-  }
+const start = async () => {
+  const app = express()
+  const httpServer = http.createServer(app)
 
-  type Author {
-    name: String!
-    id: ID!
-    born: Int
-    bookCount: Int
-  }
+  const schema = makeExecutableSchema({ typeDefs, resolvers })
 
-  type User {
-    username: String!
-    favoriteGenre: String!
-    id: ID!
-  }
+  const wsServer = new WebSocketServer({
+    server: httpServer,
+    path: '/',
+  })
 
-  type Token {
-    value: String!
-  }
+  const serverCleanup = useServer({ schema }, wsServer)
 
-  type Query {
-    bookCount: Int!
-    authorCount: Int!
-    allBooks(author: String, genre: String): [Book!]!
-    allAuthors: [Author!]!
-    me: User
-  }
-
-  type Mutation {
-    addBook(
-      title: String!
-      published: Int!
-      author: String!
-      genres: [String!]!
-    ): Book!
-    editAuthor(name: String!, setBornTo: Int!): Author
-    createUser(username: String!, favoriteGenre: String!): User
-    login(username: String!, password: String!): Token
-  }
-`
-
-const resolvers = {
-  Query: {
-    bookCount: async () => Book.collection.countDocuments(),
-    authorCount: async () => Author.collection.countDocuments(),
-    allBooks: async (root, args) => {
-      let books = await Book.find({}).populate('author')
-      if (args.author)
-        books = books.filter((b) => b.author.name === args.author)
-      if (args.genre)
-        books = books.filter((b) => b.genres.some((g) => g === args.genre))
-      return books
-    },
-    allAuthors: async () => {
-      const authors = await Author.find({})
-      const books = await Book.find({}).populate('author')
-      return authors.map((a) => {
-        a['bookCount'] = books.filter((b) => b.author.name === a.name).length
-        return a
-      })
-    },
-    me: async (root, args, context) => {
-      return context.currentUser
-    },
-  },
-  Mutation: {
-    addBook: async (root, args, context) => {
-      if (!context.currentUser) {
-        throw new AuthenticationError('Operation requires authentication')
-      }
-      try {
-        let author = await Author.findOne({ name: args.author })
-        if (!author) {
-          author = new Author({ name: args.author })
-          await author.save()
-        }
-        const book = new Book({ ...args, author })
-
-        return book.save()
-      } catch (error) {
-        throw new UserInputError(error.message, {
-          invalidArgs: args,
-        })
+  const server = new ApolloServer({
+    schema,
+    context: async ({ req }) => {
+      const auth = req ? req.headers.authorization : null
+      if (auth && auth.toLowerCase().startsWith('bearer ')) {
+        const decodedToken = jwt.verify(auth.substring(7), JWT_SECRET)
+        const currentUser = await User.findById(decodedToken.id)
+        return { currentUser }
       }
     },
-    editAuthor: async (root, args, context) => {
-      if (!context.currentUser) {
-        throw new AuthenticationError('Operation requires authentication')
-      }
-      await Author.findOneAndUpdate(
-        { name: args.name },
-        { born: args.setBornTo }
-      )
-      return await Author.findOne({ name: args.name })
-    },
-    createUser: async (root, args) => {
-      const user = new User({
-        username: args.username,
-        favoriteGenre: args.favoriteGenre,
-      })
+    plugins: [
+      ApolloServerPluginDrainHttpServer({ httpServer }),
+      {
+        async serverWillStart() {
+          return {
+            async drainServer() {
+              await serverCleanup.dispose()
+            },
+          }
+        },
+      },
+    ],
+  })
 
-      return user.save().catch((error) => {
-        throw new UserInputError(error.message, {
-          invalidArgs: args,
-        })
-      })
-    },
-    login: async (root, args) => {
-      const user = await User.findOne({ username: args.username })
+  await server.start()
 
-      if (!user || args.password !== 'secret') {
-        throw new UserInputError('wrong credentials')
-      }
+  server.applyMiddleware({
+    app,
+    path: '/',
+  })
 
-      const userForToken = {
-        username: user.username,
-        id: user._id,
-      }
+  const PORT = 4000
 
-      return { value: jwt.sign(userForToken, JWT_SECRET) }
-    },
-  },
+  httpServer.listen(PORT, () =>
+    console.log(`Server is now running on http://localhost:${PORT}`)
+  )
 }
 
-const server = new ApolloServer({
-  typeDefs,
-  resolvers,
-  context: async ({ req }) => {
-    const auth = req ? req.headers.authorization : null
-    if (auth && auth.toLowerCase().startsWith('bearer ')) {
-      const decodedToken = jwt.verify(auth.substring(7), JWT_SECRET)
-      const currentUser = await User.findById(decodedToken.id)
-      return { currentUser }
-    }
-  },
-})
-
-server.listen().then(({ url }) => {
-  console.log(`Server ready at ${url}`)
-})
+// call the function that does the setup and starts the server
+start()
